@@ -1,19 +1,34 @@
-# Grupo CCA Carregamentos
+# Grupo CCA — Central de Carregamentos
 
-Logística e transporte aéreo de cargas — referência nacional em soluções logísticas integradas.
+> **Líder em carregamento avícola e logística especializada.**
+> Mais de 1 milhão de aves movimentadas diariamente com segurança, tecnologia e respeito às pessoas.
 
-- 🏢 **14 empresas** do grupo
-- 📍 **21 unidades** operacionais
-- 👥 **3.000+ colaboradores**
-- ✈️ **Carga aérea, rodoviária e armazenagem**
-- 🌎 **Brasil**
+🏢 Fundada em **2010** em Francisco Beltrão/PR — de lá para todo o Brasil.
 
-## 🔗 Links
+## 📊 Em números
 
-- 🌐 Site institucional: [ccacarregamentos.com.br](https://ccacarregamentos.com.br)
-- 📧 Contato TI: lucas@ccacarregamentos.com.br
+| | |
+|---|---|
+| 🐔 **1 milhão** | aves/dia movimentadas |
+| 📅 **+15 anos** | de história |
+| 👥 **+1.000** | colaboradores |
+| 🏭 **14 empresas / 21 unidades** | estrutura do grupo |
 
-## 🛠️ Stack tecnológica
+## 🚛 O que fazemos
+
+- **Carregamento Avícola** — equipes especializadas em manejo humanitário e eficiente
+- **Logística Avícola Integrada** — gestão de rotas e frota em tempo real
+- **Recebimento de Grãos**
+- **Gestão de Equipes** especializadas
+- **Transporte Especializado** com frota própria e moderna
+
+Atendemos os maiores frigoríficos do país: **BRF, Agrogen, GTFoods** e outros.
+
+## 💡 Tecnologia & Inovação
+
+Operação baseada em dados — monitoramento em tempo real de cada etapa do carregamento e transporte, garantindo pontualidade e eficiência.
+
+## 🛠️ Stack tecnológica (TI interna)
 
 | Camada | Tecnologias |
 |--------|-------------|
@@ -26,11 +41,19 @@ Logística e transporte aéreo de cargas — referência nacional em soluções 
 
 ## 📦 Repositórios principais
 
-- **CCA** — monorepo da empresa (sistemas internos, ERP, app mobile, website, bot, IA)
+- **CCA** — monorepo da empresa (ERP, app mobile, website, bot WhatsApp, IA, infraestrutura)
 - **cca-consisa** — integração com sistema Consisa/SGRH
 
-> Outros repositórios foram consolidados nos monorepos acima e arquivados.
+> Demais repositórios foram consolidados nos monorepos acima e arquivados.
+
+## 🔗 Links
+
+- 🌐 **Site:** [ccacarregamentos.com.br](https://ccacarregamentos.com.br)
+- 📧 **TI:** lucas@ccacarregamentos.com.br
+- 📧 **Contato:** contato@ccacarregamentos.com.br
+- 📞 **Telefone / WhatsApp:** (46) 3527-1365
+- 📍 **Sede:** Av. Dom Agostinho José Sartori, 3074 — São Cristóvão, Francisco Beltrão/PR
 
 ---
 
-<sub>© Grupo CCA Carregamentos — Todos os direitos reservados.</sub>
+<sub>© Grupo CCA Central de Carregamentos — Todos os direitos reservados.</sub>
