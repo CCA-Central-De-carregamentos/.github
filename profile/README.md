@@ -11,7 +11,7 @@
 |---|---|
 | 🐔 **1 milhão** | aves/dia movimentadas |
 | 📅 **+15 anos** | de história |
-| 👥 **+1.000** | colaboradores |
+| 👥 **+3.000** | colaboradores |
 | 🏭 **14 empresas / 21 unidades** | estrutura do grupo |
 
 ## 🚛 O que fazemos
