@@ -27,7 +27,7 @@ Temos um aplicativo de campo para as equipes e um painel de gestão, com checkli
 
 ## Canais oficiais e golpes
 
-Golpistas usam o nome da CCA para oferecer vaga com taxa, pedir PIX ou trocar boleto. **A CCA nunca cobra para contratar e só fala pelos canais abaixo.** Na dúvida, confira em **[ccacarregamentos.com.br/canais-oficiais](https://ccacarregamentos.com.br/canais-oficiais)**.
+Golpistas usam o nome da CCA para oferecer vaga com taxa, pedir PIX ou trocar boleto. **Desconfie de pedido de pagamento, PIX ou dados em nome da CCA e confirme sempre pelos canais abaixo.** Na dúvida, confira em **[ccacarregamentos.com.br/canais-oficiais](https://ccacarregamentos.com.br/canais-oficiais)**.
 
 Esta é a **única organização oficial da CCA no GitHub**: `github.com/CCA-Central-De-carregamentos`.
 
