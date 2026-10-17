@@ -25,6 +25,12 @@ Atendemos plantas de grupos como **MBRF**, **Vibra**, **Levo** e **Seara**.
 
 Temos um aplicativo de campo para as equipes e um painel de gestão, com checklist digital na granja, equipes, frota e ponto. Os repositórios desta organização são **privados**.
 
+## Canais oficiais e golpes
+
+Golpistas usam o nome da CCA para oferecer vaga com taxa, pedir PIX ou trocar boleto. **A CCA nunca cobra para contratar e só fala pelos canais abaixo.** Na dúvida, confira em **[ccacarregamentos.com.br/canais-oficiais](https://ccacarregamentos.com.br/canais-oficiais)**.
+
+Esta é a **única organização oficial da CCA no GitHub**: `github.com/CCA-Central-De-carregamentos`.
+
 ## Contato
 
 - 🌐 [ccacarregamentos.com.br](https://ccacarregamentos.com.br)
