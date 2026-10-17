@@ -1,35 +1,42 @@
-# Grupo CCA — Central de Carregamentos
+# CCA · Central de Carregamentos
 
-> **Líder em carregamento avícola e logística especializada.**
-> Mais de 1 milhão de aves movimentadas diariamente com segurança, tecnologia e respeito às pessoas.
+> Apanha e carregamento de frangos e perus para os grandes frigoríficos do país, com equipes treinadas, tecnologia própria e respeito às pessoas e às aves.
 
-🏢 Fundada em **2010** em Francisco Beltrão/PR — de lá para todo o Brasil.
+Desde **2010** em **Francisco Beltrão (PR)**.
 
-## 📊 Em números
+## Em números
 
 | | |
 |---|---|
-| 🐔 **1 milhão** | aves/dia movimentadas |
-| 📅 **+15 anos** | de história |
-| 👥 **+3.000** | colaboradores |
-| 🏭 **14 empresas / 21 unidades** | estrutura do grupo |
+| **2010** | fundação, em Francisco Beltrão (PR) |
+| **6 estados** | PR, SC, RS, MS, GO e MG |
+| **+20 plantas** | frigoríficas atendidas |
+| **55 itens** | no checklist digital de apanha, 15 deles de bem-estar animal |
 
-## 🚛 O que fazemos
+## O que fazemos
 
-- **Carregamento Avícola** — equipes especializadas em manejo humanitário e eficiente
-- **Logística Avícola Integrada** — gestão de rotas e frota em tempo real
-- **Recebimento de Grãos**
-- **Gestão de Equipes** especializadas
-- **Transporte Especializado** com frota própria e moderna
+- **Apanha de frangos e perus**, com equipes treinadas e EPI fornecido pela empresa
+- **Carregamento e manejo de aves**, com biosseguridade e bem-estar animal
+- **Transporte das equipes** até as granjas
 
-Atendemos os maiores frigoríficos do país: **MBRF, Agrogen, GTFoods** e outros.
+Atendemos plantas de grupos como **MBRF**, **Vibra**, **Levo** e **Seara**.
 
-## 💡 Tecnologia & Inovação
+## Tecnologia própria
 
-Operação baseada em dados — monitoramento em tempo real de cada etapa do carregamento e transporte, garantindo pontualidade e eficiência.
-- 📞 **Telefone / WhatsApp:** (46) 3527-1365
-- 📍 **Sede:** Av. Dom Agostinho José Sartori, 3074 — São Cristóvão, Francisco Beltrão/PR
+Temos um aplicativo de campo para as equipes e um painel de gestão, com checklist digital na granja, equipes, frota e ponto. Os repositórios desta organização são **privados**.
 
----
+## Canais oficiais e golpes
 
-<sub>© Grupo CCA Central de Carregamentos — Todos os direitos reservados.</sub>
+Golpistas usam o nome da CCA para oferecer vaga com taxa, pedir PIX ou trocar boleto. **Desconfie de pedido de pagamento, PIX ou dados em nome da CCA e confirme sempre pelos canais abaixo.** Na dúvida, confira em **[ccacarregamentos.com.br/canais-oficiais](https://ccacarregamentos.com.br/canais-oficiais)**.
+
+Esta é a **única organização oficial da CCA no GitHub**: `github.com/CCA-Central-De-carregamentos`.
+
+## Contato
+
+- 🌐 [ccacarregamentos.com.br](https://ccacarregamentos.com.br)
+- ✉️ contato@ccacarregamentos.com.br
+- 🔒 Privacidade e dados pessoais: privacidade@ccacarregamentos.com.br
+- 📞 (46) 3527-1365
+- 📍 Av. Dom Agostinho José Sartori, 3074, São Cristóvão, Francisco Beltrão (PR)
+
+<sub>© CCA Central de Carregamentos.</sub>
