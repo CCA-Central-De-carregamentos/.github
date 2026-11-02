@@ -1,0 +1,541 @@
+name: Qualidade e segurança (reutilizável)
+
+# Varredura de qualidade e segurança só com ferramentas livres, para rodar em
+# runner interno e substituir o CodeQL e o secret scanning pagos (GHAS) e o
+# Code Quality do GitHub. Olha só o que o PR mudou:
+#   - gitleaks: segredo nos commits do PR (merge-base..head);
+#   - osv-scanner: vulnerabilidade NOVA nos lockfiles alterados (base x head);
+#   - Opengrep: p/default + regras em `.semgrep/` do repo chamador, com
+#     `--baseline-commit` na base do PR (só achado novo);
+#   - zizmor e actionlint: só quando o PR mexe em `.github/workflows/`.
+#
+# Sem upload de SARIF: Code Scanning em repo privado exige GHAS.
+# Resultado no summary do job e num comentário único no PR, atualizado a cada push.
+# Modo aviso: o job só falha por achado com `bloquear: true` (fase 2).
+#
+# Este repo é PÚBLICO. O arquivo só tem `workflow_call`, então nunca roda aqui:
+# o job roda no contexto do repo chamador, no runner que ele passar em `runner`.
+#
+# Uso no repo chamador:
+#   jobs:
+#     qualidade:
+#       permissions: { contents: read, pull-requests: write }
+#       uses: CCA-Central-De-carregamentos/.github/.github/workflows/qualidade-seguranca.yml@<sha> # <ref>
+#       with:
+#         runner: ${{ vars.CI_RUNNER || 'ubuntu-latest' }}
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: Label do runner (cca-pve01, ia-home ou ubuntu-latest). Linux x64.
+        type: string
+        default: ubuntu-latest
+      bloquear:
+        description: Falhar o job quando houver achado novo. Padrão false, só avisa.
+        type: boolean
+        default: false
+
+permissions: {}
+
+jobs:
+  varredura:
+    name: Varredura (gitleaks, osv-scanner, Opengrep, zizmor, actionlint)
+    # Só PR: a comparação base x head depende dele.
+    if: github.event_name == 'pull_request'
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 20
+    permissions:
+      contents: read # checkout
+      pull-requests: write # comentário único no PR
+    concurrency:
+      group: cca-qualidade-${{ github.repository }}-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    env:
+      # Versão e sha256 do binário Linux x64 de cada ferramenta. Bump manual:
+      # troque os dois juntos, conferindo o checksum publicado no release.
+      GITLEAKS_VERSION: 8.30.1
+      GITLEAKS_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+      OSV_SCANNER_VERSION: 2.7.0
+      OSV_SCANNER_SHA256: 160c6253e2922e9e0a6a9771c5c4c40a4b3c6090b34a3cdd5e80c96cc2e4218b
+      OPENGREP_VERSION: 1.31.0
+      OPENGREP_SHA256: dbbe3c2058dbe600c449a8ba22ea79a1643a6660658400090d0323a8d0d31147
+      ZIZMOR_VERSION: 1.31.1
+      ZIZMOR_SHA256: d185f726bdaf92df78273217dfdd24ebcd6b0ef48cf3ce776ff5762b6e138c99
+      ACTIONLINT_VERSION: 1.7.12
+      ACTIONLINT_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+    steps:
+      - name: Checkout do head do PR
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Preparar (base do PR, arquivos alterados, ambiente)
+        id: preparar
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/cca-qualidade"
+          rm -rf "$out"
+          mkdir -p "$out/bin" "$out/base" "$out/dl"
+          # Ancestral comum: sem ele, commit que entrou na base depois do PR
+          # apareceria como se fosse do PR.
+          base="$(git merge-base "$BASE_SHA" "$HEAD_SHA")"
+          git diff --name-only --diff-filter=d "$base" "$HEAD_SHA" > "$out/alterados.txt"
+          grep -E '^\.github/workflows/[^/]+\.ya?ml$' "$out/alterados.txt" > "$out/workflows.txt" || true
+          grep -E '(^|/)(pnpm-lock\.yaml|package-lock\.json|yarn\.lock|Cargo\.lock|requirements[^/]*\.txt|uv\.lock|poetry\.lock|Pipfile\.lock|Gemfile\.lock)$' \
+            "$out/alterados.txt" > "$out/lockfiles.txt" || true
+          tem() { if command -v "$1" > /dev/null 2>&1; then echo sim; else echo nao; fi; }
+          docker_ok=nao
+          if command -v docker > /dev/null 2>&1 && timeout 10 docker info > /dev/null 2>&1; then docker_ok=sim; fi
+          {
+            echo "runner=${RUNNER_NAME:-?}"
+            echo "docker=$docker_ok"
+            echo "gh=$(tem gh)"
+            echo "python3=$(tem python3)"
+            echo "shellcheck=$(tem shellcheck)"
+          } > "$out/ambiente.txt"
+          cat "$out/ambiente.txt"
+          if ! command -v python3 > /dev/null 2>&1; then
+            echo "::error::python3 ausente no runner: o relatório depende dele"
+            exit 1
+          fi
+          {
+            echo "out=$out"
+            echo "base=$base"
+            echo "workflows=$(wc -l < "$out/workflows.txt")"
+            echo "lockfiles=$(wc -l < "$out/lockfiles.txt")"
+          } >> "$GITHUB_OUTPUT"
+          echo "base ${base}: $(wc -l < "$out/alterados.txt") arquivo(s) alterado(s)," \
+            "$(wc -l < "$out/workflows.txt") workflow(s), $(wc -l < "$out/lockfiles.txt") lockfile(s)"
+
+      - name: Instalar ferramentas (versão fixa, sha256 conferido)
+        id: instalar
+        env:
+          OUT: ${{ steps.preparar.outputs.out }}
+          PRECISA_OSV: ${{ steps.preparar.outputs.lockfiles != '0' }}
+          PRECISA_WORKFLOWS: ${{ steps.preparar.outputs.workflows != '0' }}
+        run: |
+          set -euo pipefail
+          # Cache por runner (self-hosted guarda entre jobs). O arquivo usado é
+          # sempre a cópia em $OUT/dl, conferida no sha256 a cada execução.
+          cache="${RUNNER_TOOL_CACHE:-$RUNNER_TEMP}/cca-qualidade"
+          mkdir -p "$cache"
+          confere() { printf '%s  %s\n' "$1" "$2" | sha256sum -c --quiet - > /dev/null 2>&1; }
+          baixar() { # url sha256 nome
+            local url="$1" sha="$2" nome="$3" dest="$OUT/dl/$3"
+            if [ -f "$cache/$nome" ]; then cp -f "$cache/$nome" "$dest"; fi
+            if [ -f "$dest" ] && confere "$sha" "$dest"; then
+              echo "cache: $nome"
+              return 0
+            fi
+            curl -fsSL --retry 3 --retry-delay 5 -o "$dest" "$url"
+            if ! confere "$sha" "$dest"; then
+              echo "::error::sha256 não confere: $url"
+              rm -f "$dest"
+              return 1
+            fi
+            cp -f "$dest" "$cache/$nome.tmp.$$"
+            mv -f "$cache/$nome.tmp.$$" "$cache/$nome"
+            echo "baixado: $nome"
+          }
+          rel=https://github.com
+
+          baixar "$rel/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            "$GITLEAKS_SHA256" "gitleaks-${GITLEAKS_VERSION}.tar.gz"
+          tar -xzf "$OUT/dl/gitleaks-${GITLEAKS_VERSION}.tar.gz" -C "$OUT/bin" gitleaks
+
+          baixar "$rel/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/opengrep_manylinux_x86" \
+            "$OPENGREP_SHA256" "opengrep-${OPENGREP_VERSION}"
+          install -m 0755 "$OUT/dl/opengrep-${OPENGREP_VERSION}" "$OUT/bin/opengrep"
+
+          if [ "$PRECISA_OSV" = true ]; then
+            baixar "$rel/google/osv-scanner/releases/download/v${OSV_SCANNER_VERSION}/osv-scanner_linux_amd64" \
+              "$OSV_SCANNER_SHA256" "osv-scanner-${OSV_SCANNER_VERSION}"
+            install -m 0755 "$OUT/dl/osv-scanner-${OSV_SCANNER_VERSION}" "$OUT/bin/osv-scanner"
+          fi
+
+          if [ "$PRECISA_WORKFLOWS" = true ]; then
+            baixar "$rel/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/zizmor-x86_64-unknown-linux-gnu.tar.gz" \
+              "$ZIZMOR_SHA256" "zizmor-${ZIZMOR_VERSION}.tar.gz"
+            tar -xzf "$OUT/dl/zizmor-${ZIZMOR_VERSION}.tar.gz" -C "$OUT/bin" zizmor
+            baixar "$rel/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" \
+              "$ACTIONLINT_SHA256" "actionlint-${ACTIONLINT_VERSION}.tar.gz"
+            tar -xzf "$OUT/dl/actionlint-${ACTIONLINT_VERSION}.tar.gz" -C "$OUT/bin" actionlint
+          fi
+          ls -l "$OUT/bin"
+
+      - name: gitleaks (segredo nos commits do PR)
+        id: gitleaks
+        continue-on-error: true
+        env:
+          OUT: ${{ steps.preparar.outputs.out }}
+          BASE: ${{ steps.preparar.outputs.base }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # --diff-merges=first-parent: sem ele o `git log -p` esconde o diff de
+          # commit de merge, e um segredo que entrasse só num conflito passaria.
+          "$OUT/bin/gitleaks" git --redact --no-banner --exit-code 0 \
+            --report-format json --report-path "$OUT/gitleaks.json" \
+            --log-opts="--diff-merges=first-parent ${BASE}..${HEAD_SHA}" .
+
+      - name: osv-scanner (vulnerabilidade nova nos lockfiles alterados)
+        id: osv
+        if: steps.preparar.outputs.lockfiles != '0'
+        continue-on-error: true
+        env:
+          OUT: ${{ steps.preparar.outputs.out }}
+          BASE: ${{ steps.preparar.outputs.base }}
+        run: |
+          set -euo pipefail
+          args_head=()
+          args_base=()
+          while IFS= read -r f; do
+            args_head+=(-L "$f")
+            if git cat-file -e "${BASE}:${f}" 2> /dev/null; then
+              mkdir -p "$OUT/base/$(dirname "$f")"
+              git show "${BASE}:${f}" > "$OUT/base/$f"
+              args_base+=(-L "$f")
+            fi
+          done < "$OUT/lockfiles.txt"
+          rodar() { # pasta saida args...
+            local pasta="$1" saida="$2" rc=0
+            shift 2
+            (cd "$pasta" && "$OUT/bin/osv-scanner" scan source --no-resolve --format json "$@") > "$saida" || rc=$?
+            # 0 = nada, 1 = achou vulnerabilidade, 128 = nenhum pacote. O resto é erro.
+            case "$rc" in
+              0 | 1 | 128) return 0 ;;
+              *) echo "::warning::osv-scanner saiu com código $rc"; return "$rc" ;;
+            esac
+          }
+          rodar "$GITHUB_WORKSPACE" "$OUT/osv-head.json" "${args_head[@]}"
+          if [ "${#args_base[@]}" -gt 0 ]; then
+            rodar "$OUT/base" "$OUT/osv-base.json" "${args_base[@]}"
+          else
+            echo '{}' > "$OUT/osv-base.json"
+          fi
+
+      - name: Opengrep (p/default + regras do repo em .semgrep/)
+        id: opengrep
+        continue-on-error: true
+        env:
+          OUT: ${{ steps.preparar.outputs.out }}
+          BASE: ${{ steps.preparar.outputs.base }}
+        run: |
+          set -euo pipefail
+          regras=(--config p/default)
+          if [ -d .semgrep ] && [ -n "$(find .semgrep -type f \( -name '*.yml' -o -name '*.yaml' \) -print -quit)" ]; then
+            regras+=(--config .semgrep)
+            echo "regras do repo: .semgrep/"
+          fi
+          # --baseline-commit: só entra achado que não existia na base do PR.
+          "$OUT/bin/opengrep" scan "${regras[@]}" --baseline-commit "$BASE" \
+            --json --output "$OUT/opengrep.json" --quiet .
+
+      - name: zizmor (workflows alterados)
+        id: zizmor
+        if: steps.preparar.outputs.workflows != '0'
+        continue-on-error: true
+        env:
+          OUT: ${{ steps.preparar.outputs.out }}
+          # Auditorias online (impostor-commit, known-vulnerable-actions) usam a API.
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mapfile -t workflows < "$OUT/workflows.txt"
+          "$OUT/bin/zizmor" --format json --no-exit-codes "${workflows[@]}" > "$OUT/zizmor.json"
+
+      - name: actionlint (workflows alterados)
+        id: actionlint
+        if: steps.preparar.outputs.workflows != '0'
+        continue-on-error: true
+        env:
+          OUT: ${{ steps.preparar.outputs.out }}
+        run: |
+          set -euo pipefail
+          mapfile -t workflows < "$OUT/workflows.txt"
+          rc=0
+          "$OUT/bin/actionlint" -format '{{json .}}' "${workflows[@]}" > "$OUT/actionlint.json" || rc=$?
+          # 0 = limpo, 1 = achou problema. O resto é erro de execução.
+          [ "$rc" -le 1 ]
+
+      - name: Relatório (summary e comentário único no PR)
+        if: always() && steps.preparar.outcome == 'success'
+        env:
+          OUT: ${{ steps.preparar.outputs.out }}
+          BASE: ${{ steps.preparar.outputs.base }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMERO: ${{ github.event.pull_request.number }}
+          PR_AUTOR: ${{ github.event.pull_request.user.login }}
+          HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BLOQUEAR: ${{ inputs.bloquear }}
+          GITHUB_TOKEN: ${{ github.token }}
+          R_INSTALAR: ${{ steps.instalar.outcome }}
+          R_GITLEAKS: ${{ steps.gitleaks.outcome }}
+          R_OSV: ${{ steps.osv.outcome }}
+          R_OPENGREP: ${{ steps.opengrep.outcome }}
+          R_ZIZMOR: ${{ steps.zizmor.outcome }}
+          R_ACTIONLINT: ${{ steps.actionlint.outcome }}
+        run: |
+          python3 -I - <<'PY'
+          import json, os, sys, urllib.error, urllib.request
+
+          E = os.environ
+          OUT = E["OUT"]
+          MARCADOR = "<!-- cca-qualidade -->"
+
+
+          def ler_json(nome, padrao):
+              try:
+                  with open(os.path.join(OUT, nome), encoding="utf-8") as fh:
+                      texto = fh.read().strip()
+              except FileNotFoundError:
+                  return padrao
+              return json.loads(texto) if texto else padrao
+
+
+          def limpa(texto, maximo=220, codigo=False):
+              # Texto vem da ferramenta (e do código do PR): sem menção, sem HTML.
+              # Dentro de `código` o GitHub não cria menção, então ali o @ fica como está.
+              t = " ".join(str(texto if texto is not None else "").split())
+              t = t.replace("<", "&lt;").replace(">", "&gt;").replace("`", "'")
+              if not codigo:
+                  t = t.replace("@", "@\u200b")
+              return t if len(t) <= maximo else t[: maximo - 1] + "…"
+
+
+          def cod(texto):
+              return "`" + limpa(texto, 160, codigo=True) + "`"
+
+
+          def onde(caminho, linha):
+              return cod(str(caminho) + ":" + str(linha))
+
+
+          def rel(caminho, raiz):
+              return os.path.relpath(os.path.realpath(caminho), os.path.realpath(raiz))
+
+
+          def leitor_gitleaks():
+              itens = []
+              for v in ler_json("gitleaks.json", []):
+                  commit = str(v.get("Commit") or "")[:7]
+                  itens.append(cod(v.get("RuleID")) + " em " + onde(v.get("File"), v.get("StartLine"))
+                               + " (commit " + cod(commit) + "): " + limpa(v.get("Description")))
+              return itens, ""
+
+
+          def vulns(nome, raiz):
+              res = []
+              for r in ler_json(nome, {}).get("results") or []:
+                  fonte = rel((r.get("source") or {}).get("path") or "?", raiz)
+                  for p in r.get("packages") or []:
+                      pk = p.get("package") or {}
+                      grupos = p.get("groups") or [
+                          {"ids": [v.get("id")], "aliases": [v.get("id")]} for v in p.get("vulnerabilities") or []
+                      ]
+                      for g in grupos:
+                          ids = [i for i in (g.get("aliases") or g.get("ids") or []) if i]
+                          principal = (g.get("ids") or ids or ["?"])[0]
+                          res.append({"fonte": fonte, "eco": pk.get("ecosystem"), "nome": pk.get("name"),
+                                      "versao": pk.get("version"), "ids": set(ids) or {principal},
+                                      "id": principal, "sev": g.get("max_severity") or ""})
+              return res
+
+
+          def nota(v):
+              try:
+                  return float(v["sev"])
+              except (TypeError, ValueError):
+                  return -1.0
+
+
+          def leitor_osv():
+              head = vulns("osv-head.json", E["GITHUB_WORKSPACE"])
+              conhecidas = {}
+              for v in vulns("osv-base.json", os.path.join(OUT, "base")):
+                  conhecidas.setdefault((v["fonte"], v["eco"], v["nome"]), set()).update(v["ids"])
+              novas, vistas = [], set()
+              for v in sorted(head, key=nota, reverse=True):
+                  chave = (v["fonte"], v["eco"], v["nome"], v["id"])
+                  if chave in vistas or v["ids"] & conhecidas.get(chave[:3], set()):
+                      continue
+                  vistas.add(chave)
+                  sev = (" · CVSS " + limpa(v["sev"], 8)) if v["sev"] else ""
+                  novas.append(cod(str(v["nome"]) + "@" + str(v["versao"])) + " (" + limpa(v["eco"], 20) + ") em "
+                               + cod(v["fonte"]) + ": [" + limpa(v["id"], 40) + "](https://osv.dev/vulnerability/"
+                               + limpa(v["id"], 40) + ")" + sev)
+              return novas, ""
+
+
+          ORDEM = {"CRITICAL": 0, "ERROR": 1, "HIGH": 1, "WARNING": 2, "MEDIUM": 2, "LOW": 3, "INFO": 4}
+
+
+          def leitor_opengrep():
+              d = ler_json("opengrep.json", {})
+              achados = sorted(d.get("results") or [],
+                               key=lambda r: ORDEM.get(str((r.get("extra") or {}).get("severity") or "").upper(), 5))
+              itens = []
+              for r in achados:
+                  ex = r.get("extra") or {}
+                  regra = str(r.get("check_id") or "?").split(".")[-1]
+                  itens.append("**" + limpa(ex.get("severity"), 12) + "** " + cod(regra) + " em "
+                               + onde(r.get("path"), (r.get("start") or {}).get("line")) + ": " + limpa(ex.get("message")))
+              erros = len(d.get("errors") or [])
+              return itens, (" (" + str(erros) + " aviso(s) de parse no log)") if erros else ""
+
+
+          def leitor_zizmor():
+              itens = []
+              for f in ler_json("zizmor.json", []):
+                  if f.get("ignored"):
+                      continue
+                  locs = f.get("locations") or [{}]
+                  prim = next((x for x in locs if (x.get("symbolic") or {}).get("kind") == "Primary"), locs[0])
+                  local = ((prim.get("symbolic") or {}).get("key") or {}).get("Local") or {}
+                  ponto = ((prim.get("concrete") or {}).get("location") or {}).get("start_point") or {}
+                  sev = (f.get("determinations") or {}).get("severity")
+                  itens.append("**" + limpa(sev, 14) + "** " + cod(f.get("ident")) + " em "
+                               + onde(local.get("verbatim_path") or local.get("given_path") or "?",
+                                      int(ponto.get("row", -1)) + 1)
+                               + ": " + limpa(f.get("desc")) + " (" + limpa((prim.get("symbolic") or {}).get("annotation")) + ")")
+              return itens, ""
+
+
+          def leitor_actionlint():
+              itens = []
+              for e in ler_json("actionlint.json", []) or []:
+                  itens.append(cod(e.get("kind")) + " em " + onde(e.get("filepath"), e.get("line")) + ": "
+                               + limpa(e.get("message")))
+              return itens, ""
+
+
+          ferramentas = [
+              ("gitleaks", E["GITLEAKS_VERSION"], E["R_GITLEAKS"], leitor_gitleaks, ""),
+              ("osv-scanner", E["OSV_SCANNER_VERSION"], E["R_OSV"], leitor_osv, "nenhum lockfile alterado"),
+              ("Opengrep", E["OPENGREP_VERSION"], E["R_OPENGREP"], leitor_opengrep, ""),
+              ("zizmor", E["ZIZMOR_VERSION"], E["R_ZIZMOR"], leitor_zizmor, "nenhum workflow alterado"),
+              ("actionlint", E["ACTIONLINT_VERSION"], E["R_ACTIONLINT"], leitor_actionlint, "nenhum workflow alterado"),
+          ]
+          resultado = []
+          for nome, versao, saida, leitor, motivo in ferramentas:
+              itens, situacao = None, ""
+              if E["R_INSTALAR"] != "success":
+                  situacao = "não rodou: instalação falhou"
+              elif saida == "skipped":
+                  situacao = "pulado: " + motivo
+              elif saida != "success":
+                  situacao = "erro (" + (saida or "não rodou") + "): ver o log do passo"
+              else:
+                  try:
+                      itens, extra = leitor()
+                      situacao = "ok" + extra
+                  except Exception as exc:  # relatório nunca derruba o job por parse
+                      situacao = "erro ao ler a saída: " + limpa(exc, 80)
+              resultado.append({"nome": nome, "versao": versao, "situacao": situacao, "itens": itens})
+
+          total = sum(len(t["itens"]) for t in resultado if t["itens"])
+          bloquear = E.get("BLOQUEAR") == "true"
+          servidor = E.get("GITHUB_SERVER_URL", "https://github.com")
+          execucao = servidor + "/" + E["GITHUB_REPOSITORY"] + "/actions/runs/" + E["GITHUB_RUN_ID"]
+          with open(os.path.join(OUT, "ambiente.txt"), encoding="utf-8") as fh:
+              ambiente = dict(l.strip().split("=", 1) for l in fh if "=" in l)
+
+
+          def montar(limite):
+              modo = "bloqueio" if bloquear else "aviso (não trava o merge)"
+              linhas = [
+                  MARCADOR,
+                  "### Qualidade e segurança (ferramentas livres, runner interno)",
+                  "",
+                  "Modo **" + modo + "** · head " + cod(E["HEAD_SHA"][:7]) + " contra a base " + cod(E["BASE"][:7])
+                  + " · runner " + cod(ambiente.get("runner", "?")) + " · [execução](" + execucao + ")",
+                  "",
+                  "| Ferramenta | Versão | Situação | Achados |",
+                  "|---|---|---|---|",
+              ]
+              for t in resultado:
+                  qtd = str(len(t["itens"])) if t["itens"] is not None else "-"
+                  linhas.append("| " + t["nome"] + " | " + t["versao"] + " | " + t["situacao"] + " | " + qtd + " |")
+              for t in resultado:
+                  if not t["itens"]:
+                      continue
+                  linhas += ["", "<details><summary><b>" + t["nome"] + "</b>: " + str(len(t["itens"]))
+                             + " achado(s)</summary>", ""]
+                  linhas += ["- " + i for i in t["itens"][:limite]]
+                  if len(t["itens"]) > limite:
+                      linhas.append("- e mais " + str(len(t["itens"]) - limite) + ": lista completa no log do passo")
+                  linhas += ["", "</details>"]
+              linhas += ["", "<sub>gitleaks lê os commits do PR; osv-scanner só conta vulnerabilidade que a base não tinha;"
+                         " Opengrep roda com <code>--baseline-commit</code>; zizmor e actionlint só quando o PR mexe em"
+                         " <code>.github/workflows/</code>. Sem upload de SARIF.</sub>"]
+              return "\n".join(linhas) + "\n"
+
+
+          corpo = montar(25)
+          for limite in (10, 3, 0):
+              if len(corpo) < 60000:
+                  break
+              corpo = montar(limite)
+
+          for t in resultado:
+              print("== " + t["nome"] + " " + t["versao"] + ": " + t["situacao"])
+              for i in t["itens"] or []:
+                  print("   - " + i)
+
+          with open(E["GITHUB_STEP_SUMMARY"], "a", encoding="utf-8") as fh:
+              fh.write(corpo)
+              fh.write("\nAmbiente do runner: " + ", ".join(k + "=" + v for k, v in ambiente.items()) + "\n")
+
+          pulo = ""
+          if E.get("HEAD_REPO") != E["GITHUB_REPOSITORY"]:
+              pulo = "PR de fork (token sem escrita)"
+          elif E.get("PR_AUTOR") == "dependabot[bot]":
+              pulo = "PR do Dependabot (token sem escrita)"
+
+
+          def api(metodo, caminho, dados=None):
+              req = urllib.request.Request(
+                  E.get("GITHUB_API_URL", "https://api.github.com") + caminho,
+                  data=json.dumps(dados).encode() if dados is not None else None,
+                  method=metodo,
+                  headers={"Authorization": "Bearer " + E["GITHUB_TOKEN"], "Accept": "application/vnd.github+json",
+                           "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "cca-qualidade"},
+              )
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  return json.loads(resp.read() or b"null")
+
+
+          if pulo:
+              print("comentário pulado: " + pulo)
+          else:
+              base_api = "/repos/" + E["GITHUB_REPOSITORY"] + "/issues"
+              try:
+                  existente, pagina = None, 1
+                  while existente is None:
+                      lote = api("GET", base_api + "/" + E["PR_NUMERO"] + "/comments?per_page=100&page=" + str(pagina))
+                      if not lote:
+                          break
+                      existente = next((c for c in lote if MARCADOR in (c.get("body") or "")
+                                        and (c.get("user") or {}).get("type") == "Bot"), None)
+                      pagina += 1
+                  if existente:
+                      api("PATCH", base_api + "/comments/" + str(existente["id"]), {"body": corpo})
+                      print("comentário atualizado: " + existente["html_url"])
+                  else:
+                      novo = api("POST", base_api + "/" + E["PR_NUMERO"] + "/comments", {"body": corpo})
+                      print("comentário criado: " + novo["html_url"])
+              except (urllib.error.URLError, KeyError, ValueError) as exc:
+                  print("::warning::não consegui comentar no PR: " + limpa(exc, 160))
+
+          if total:
+              if bloquear:
+                  print("::error::" + str(total) + " achado(s) novo(s) de qualidade/segurança (modo bloqueio)")
+                  sys.exit(1)
+              print("::warning::" + str(total) + " achado(s) novo(s) de qualidade/segurança (modo aviso)")
+          PY
