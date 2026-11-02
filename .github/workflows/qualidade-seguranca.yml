@@ -28,7 +28,7 @@ on:
   workflow_call:
     inputs:
       runner:
-        description: Label do runner (cca-pve01, ia-home ou ubuntu-latest). Linux x64.
+        description: Label do runner (self-hosted ou ubuntu-latest). Precisa ser Linux x64.
         type: string
         default: ubuntu-latest
       bloquear:
